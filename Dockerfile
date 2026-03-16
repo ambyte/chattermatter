@@ -84,9 +84,11 @@ COPY --from=builder /mattermost/bin/mmctl /mattermost/bin/mmctl
 COPY --from=builder /mattermost/i18n /mattermost/i18n
 COPY --from=builder /mattermost/templates /mattermost/templates
 
-# Create directories
+# Create directories with proper permissions
+# Mattermost needs write access to config, data, logs, plugins
 RUN mkdir -p /mattermost/config /mattermost/data /mattermost/logs /mattermost/plugins /mattermost/client/plugins && \
-    chown -R mattermost:mattermost /mattermost
+    chown -R mattermost:mattermost /mattermost && \
+    chmod -R u+w /mattermost/config /mattermost/data /mattermost/logs /mattermost/plugins /mattermost/client/plugins
 
 # Switch to non-root user
 USER mattermost
@@ -102,6 +104,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Set environment variables
 ENV PATH="/mattermost/bin:${PATH}"
 ENV DISABLE_LICENSE="1"
+ENV MM_CONFIG="/mattermost/config/config.json"
+ENV MM_SERVICESETTINGS_ENABLELOCALMODE="true"
 
 # Start mattermost
 CMD ["mattermost"]

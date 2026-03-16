@@ -127,7 +127,13 @@ func (ps *PlatformService) LoadLicense() {
 			ps.SetLicense(ps.LicenseManager().NewMattermostEntryLicense(ps.telemetryId))
 		} else {
 			ps.logger.Warn("License key from https://mattermost.com required to unlock enterprise features.", mlog.Err(nErr))
-			ps.SetLicense(nil)
+			// Check if license is disabled via env var and use mock license instead of nil
+			if useMockLicense {
+				ps.logger.Info("DISABLE_LICENSE is set, using mock license with all features enabled.")
+				ps.SetLicense(utils.NewMockLicense())
+			} else {
+				ps.SetLicense(nil)
+			}
 		}
 		return
 	}
