@@ -1,7 +1,7 @@
-# Build stage
+# Build stage - используем Ubuntu вместо Alpine для совместимости
 FROM golang:1.24-bookworm AS builder
 
-WORKDIR /go/src/github.com/mattermost/mattermost/server/v8
+WORKDIR /build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -10,19 +10,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy go mod files
+# Copy go mod files first for better caching
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY server/ ./
+COPY server/ .
 
-# Copy public model (отдельно для проверки)
-COPY server/public/ ./public/
-
-# Build the application
+# Build only the server binary with minimal tags
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags "-s -w" \
+    -ldflags "-s -w -X main.BuildNumber=docker" \
     -o mattermost-server \
     ./cmd/mattermost
 
@@ -43,14 +40,15 @@ RUN groupadd -g 1000 mattermost && \
 WORKDIR /mattermost
 
 # Copy binary from builder
-COPY --from=builder /go/src/github.com/mattermost/mattermost/server/v8/mattermost-server /mattermost/bin/mattermost
+COPY --from=builder /build/mattermost-server /mattermost/bin/mattermost
 
 # Copy necessary files from builder
-COPY --from=builder /go/src/github.com/mattermost/mattermost/server/v8/i18n /mattermost/i18n
-COPY --from=builder /go/src/github.com/mattermost/mattermost/server/v8/templates /mattermost/templates
+COPY --from=builder /build/i18n /mattermost/i18n
+COPY --from=builder /build/templates /mattermost/templates
+COPY --from=builder /build/config/config.json /mattermost/config/config.json
 
-# Create config directory and copy default config if exists
-RUN mkdir -p /mattermost/config /mattermost/data /mattermost/logs /mattermost/plugins /mattermost/client/plugins && \
+# Create data directories
+RUN mkdir -p /mattermost/data /mattermost/logs /mattermost/plugins /mattermost/client/plugins && \
     chown -R mattermost:mattermost /mattermost
 
 # Switch to non-root user
@@ -67,8 +65,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Set environment variables
 ENV PATH="/mattermost/bin:${PATH}"
 ENV DISABLE_LICENSE="1"
-ENV MM_SQLSETTINGS_DRIVERNAME="postgres"
-ENV MM_SQLSETTINGS_DATASOURCE="postgres://mmuser:mmuser-password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10"
 
 # Start mattermost
 CMD ["mattermost"]
