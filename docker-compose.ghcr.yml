@@ -1,0 +1,129 @@
+version: "3.8"
+
+services:
+  mattermost:
+    image: ghcr.io/${GITHUB_REPOSITORY:-mattermost/mattermost-server}:latest
+    container_name: mattermost
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - minio
+    ports:
+      - "8065:8065"
+      - "8067:8067"
+    environment:
+      # Database settings
+      - MM_SQLSETTINGS_DRIVERNAME=postgres
+      - MM_SQLSETTINGS_DATASOURCE=postgres://mmuser:mmuser-password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+
+      # File storage settings (MinIO)
+      - MM_FILESETTINGS_DRIVERNAME=amazons3
+      - MM_FILESETTINGS_AMAZONS3ENDPOINT=minio:9000
+      - MM_FILESETTINGS_AMAZONS3ACCESSKEYID=minioadmin
+      - MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY=minioadmin-password
+      - MM_FILESETTINGS_AMAZONS3BUCKET=mattermost
+      - MM_FILESETTINGS_AMAZONS3REGION=us-east-1
+      - MM_FILESETTINGS_AMAZONS3SSL=false
+      - MM_FILESETTINGS_AMAZONS3SSE=false
+      - MM_FILESETTINGS_AMAZONS3TRACE=false
+
+      # License disabled
+      - DISABLE_LICENSE=1
+
+      # Service settings
+      - MM_SERVICESETTINGS_SITEURL=http://localhost:8065
+      - MM_SERVICESETTINGS_LISTENADDRESS=:8065
+      - MM_SERVICESETTINGS_ENABLELOCALMODE=true
+
+      # Log settings
+      - MM_LOGSETTINGS_ENABLECONSOLE=true
+      - MM_LOGSETTINGS_CONSOLELEVEL=INFO
+      - MM_LOGSETTINGS_ENABLEFILE=false
+
+      # Password settings (for development)
+      - MM_PASSWORDSETTINGS_MINIMUMLENGTH=5
+      - MM_PASSWORDSETTINGS_LOWERCASE=false
+      - MM_PASSWORDSETTINGS_UPPERCASE=false
+      - MM_PASSWORDSETTINGS_NUMBER=false
+      - MM_PASSWORDSETTINGS_SYMBOL=false
+    volumes:
+      - mattermost-data:/mattermost/data
+      - mattermost-logs:/mattermost/logs
+      - mattermost-plugins:/mattermost/plugins
+      - mattermost-client-plugins:/mattermost/client/plugins
+    networks:
+      - mattermost-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: mattermost-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=mmuser
+      - POSTGRES_PASSWORD=mmuser-password
+      - POSTGRES_DB=mattermost
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - mattermost-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: mattermost-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin-password
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - mattermost-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MinIO bucket creation service
+  minio-setup:
+    image: minio/mc:latest
+    container_name: mattermost-minio-setup
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin-password;
+      /usr/bin/mc mb myminio/mattermost || true;
+      /usr/bin/mc policy set public myminio/mattermost || true;
+      exit 0;
+      "
+    networks:
+      - mattermost-network
+
+volumes:
+  mattermost-data:
+    driver: local
+  mattermost-logs:
+    driver: local
+  mattermost-plugins:
+    driver: local
+  mattermost-client-plugins:
+    driver: local
+  postgres-data:
+    driver: local
+  minio-data:
+    driver: local
+
+networks:
+  mattermost-network:
+    driver: bridge

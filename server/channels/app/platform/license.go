@@ -26,6 +26,16 @@ const (
 	LicenseEnv = "MM_LICENSE"
 )
 
+// init функция, которая переопределяет поведение по умолчанию при наличии переменной окружения
+func init() {
+	// Если установлена переменная окружения DISABLE_LICENSE, то используем заглушку
+	if os.Getenv("DISABLE_LICENSE") != "" {
+		useMockLicense = true
+	}
+}
+
+var useMockLicense bool = false
+
 // JWTClaims custom JWT claims with the needed information for the
 // renewal process
 type JWTClaims struct {
@@ -43,6 +53,9 @@ func (ps *PlatformService) SetLicenseManager(impl einterfaces.LicenseInterface) 
 }
 
 func (ps *PlatformService) License() *model.License {
+	if useMockLicense {
+		return utils.NewMockLicense()
+	}
 	return ps.licenseValue.Load()
 }
 
@@ -243,6 +256,11 @@ func (ps *PlatformService) SaveLicense(licenseBytes []byte) (*model.License, *mo
 }
 
 func (ps *PlatformService) SetLicense(license *model.License) bool {
+	// Если используется заглушка лицензии, всегда устанавливаем заглушку
+	if useMockLicense {
+		license = utils.NewMockLicense()
+	}
+
 	oldLicense := ps.licenseValue.Load()
 
 	defer func() {
