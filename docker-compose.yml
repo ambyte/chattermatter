@@ -1,0 +1,109 @@
+# https://docs.docker.com/compose/environment-variables/
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG}
+    restart: ${RESTART_POLICY}
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - pg_mm_data:/var/lib/postgresql/data
+    environment:
+      # timezone inside container
+      - TZ=${TZ}
+
+      # necessary Postgres options/variables
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    networks:
+      - mattermost-network
+
+  mattermost:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    image: ${MATTERMOST_IMAGE}:${MATTERMOST_IMAGE_TAG}
+    restart: ${RESTART_POLICY}
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 16G
+    read_only: ${MATTERMOST_CONTAINER_READONLY}
+    ports:
+      - ${APP_PORT}:8065
+      - ${CALLS_PORT}:${CALLS_PORT}/udp
+      - ${CALLS_PORT}:${CALLS_PORT}/tcp
+    tmpfs:
+      - /tmp
+    volumes:
+      - ${MATTERMOST_CONFIG_PATH}:/mattermost/config:rw
+      - ${MATTERMOST_DATA_PATH}:/mattermost/data:rw
+      - ${MATTERMOST_LOGS_PATH}:/mattermost/logs:rw
+      - ${MATTERMOST_PLUGINS_PATH}:/mattermost/plugins:rw
+      - ${MATTERMOST_CLIENT_PLUGINS_PATH}:/mattermost/client/plugins:rw
+      - ${MATTERMOST_BLEVE_INDEXES_PATH}:/mattermost/bleve-indexes:rw
+    environment:
+      # timezone inside container
+      - TZ=${TZ}
+
+      # necessary Mattermost options/variables
+      - MM_SQLSETTINGS_DRIVERNAME=${MM_SQLSETTINGS_DRIVERNAME}
+      - MM_SQLSETTINGS_DATASOURCE=${MM_SQLSETTINGS_DATASOURCE}
+
+      # necessary for bleve
+      - MM_BLEVESETTINGS_INDEXDIR=${MM_BLEVESETTINGS_INDEXDIR}
+
+      # additional settings
+      - MM_SERVICESETTINGS_SITEURL=${MM_SERVICESETTINGS_SITEURL}
+
+      # License removal - disables license checks and enables all features
+      - DISABLE_LICENSE=${DISABLE_LICENSE:-1}
+
+      # Email settings (disable verification for development)
+      - MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL=true
+      - MM_EMAILSETTINGS_ENABLESIGNINWITHEMAIL=true
+      - MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME=true
+      - MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
+      - MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION=false
+
+      # Team settings
+      - MM_TEAMSETTINGS_ENABLETEAMCREATION=true
+      - MM_TEAMSETTINGS_ENABLEOPENSERVER=true
+    networks:
+      - mattermost-network
+
+volumes:
+  pg_mm_data:
+    driver: local
+  config:
+    driver: local
+  data:
+    driver: local
+  logs:
+    driver: local
+  plugins:
+    driver: local
+  client-plugins:
+    driver: local
+  bleve-indexes:
+    driver: local
+
+networks:
+  mattermost-network:
+    driver: bridge
