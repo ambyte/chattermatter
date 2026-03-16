@@ -50,6 +50,24 @@ func NewMockLicense() *model.License {
 
 	// Устанавливаем SKU на Enterprise для максимальной совместимости
 	license.SkuShortName = model.LicenseShortSkuEnterpriseAdvanced
+	license.SkuName = "Enterprise Advanced"
+
+	// Устанавливаем ID лицензии
+	license.Id = model.NewId()
+
+	// Устанавливаем временные метки (licensed from now + 10 years)
+	now := model.GetMillis()
+	license.IssuedAt = now
+	license.StartsAt = now
+	license.ExpiresAt = now + (10 * 365 * 24 * 60 * 60 * 1000) // 10 years
+
+	// Устанавливаем Customer (обязательно для GetClientLicense)
+	license.Customer = &model.Customer{
+		Id:      model.NewId(),
+		Name:    "Mock Customer",
+		Email:   "mock@example.com",
+		Company: "Mock Company",
+	}
 
 	return license
 }
