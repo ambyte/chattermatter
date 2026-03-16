@@ -1,5 +1,5 @@
-# Build stage
-FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS builder
+# Backend build stage
+FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS backend-builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -40,7 +40,6 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
     fi
 
 # Build binaries using go build directly
-# We build only cmd/mattermost and cmd/mmctl
 RUN CC=$(if [ "${TARGETARCH}" = "arm64" ]; then echo "aarch64-linux-gnu-gcc"; else echo "gcc"; fi) \
     go build -v \
     -o bin/mattermost \
@@ -56,8 +55,18 @@ RUN CC=$(if [ "${TARGETARCH}" = "arm64" ]; then echo "aarch64-linux-gnu-gcc"; el
     -ldflags '-w -s' \
     ./cmd/mmctl
 
-# Verify binaries were created
-RUN ls -la bin/
+# Frontend build stage
+FROM --platform=$BUILDPLATFORM node:20-bookworm AS frontend-builder
+
+WORKDIR /webapp
+
+# Copy webapp source
+COPY webapp/ ./
+
+# Install dependencies and build
+RUN npm ci && \
+    cd channels && \
+    npm run build
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -76,16 +85,18 @@ RUN groupadd -g 1000 mattermost && \
 
 WORKDIR /mattermost
 
-# Copy binaries from builder
-COPY --from=builder /mattermost/bin/mattermost /mattermost/bin/mattermost
-COPY --from=builder /mattermost/bin/mmctl /mattermost/bin/mmctl
+# Copy binaries from backend builder
+COPY --from=backend-builder /mattermost/bin/mattermost /mattermost/bin/mattermost
+COPY --from=backend-builder /mattermost/bin/mmctl /mattermost/bin/mmctl
 
-# Copy necessary files from builder
-COPY --from=builder /mattermost/i18n /mattermost/i18n
-COPY --from=builder /mattermost/templates /mattermost/templates
+# Copy necessary files from backend builder
+COPY --from=backend-builder /mattermost/i18n /mattermost/i18n
+COPY --from=backend-builder /mattermost/templates /mattermost/templates
+
+# Copy built webapp from frontend builder
+COPY --from=frontend-builder /webapp/channels/dist /mattermost/client
 
 # Create directories with proper permissions
-# Mattermost needs write access to config, data, logs, plugins
 RUN mkdir -p /mattermost/config /mattermost/data /mattermost/logs /mattermost/plugins /mattermost/client/plugins && \
     chown -R mattermost:mattermost /mattermost && \
     chmod -R u+w /mattermost/config /mattermost/data /mattermost/logs /mattermost/plugins /mattermost/client/plugins
