@@ -57,9 +57,7 @@ RUN CC=$(if [ "${TARGETARCH}" = "arm64" ]; then echo "aarch64-linux-gnu-gcc"; el
     ./cmd/mmctl
 
 # Verify binaries were created
-RUN ls -la bin/ && \
-    file bin/mattermost && \
-    file bin/mmctl
+RUN ls -la bin/
 
 # Runtime stage
 FROM debian:bookworm-slim
