@@ -1,0 +1,24 @@
+# Dockerfile for building Mattermost package (used in CI for GHCR image build)
+ARG GO_VERSION=1.24.13
+FROM mattermost/mattermost-build-server:${GO_VERSION}
+
+WORKDIR /workspace
+
+# Copy repository
+COPY . .
+
+# Install webapp dependencies (required for build-client)
+WORKDIR /workspace/webapp
+RUN npm ci
+
+# Build package (same as server-ci build-mattermost-server job)
+WORKDIR /workspace/server
+ENV GOFLAGS=-buildvcs=false
+RUN make setup-go-work \
+  && make config-reset \
+  && make build-cmd \
+  && make package
+
+# Output stage - extract only the package for next build stage
+FROM scratch
+COPY --from=0 /workspace/server/dist/*.tar.gz /

@@ -1,0 +1,2 @@
+# For generate_license.py
+cryptography>=41.0.0
