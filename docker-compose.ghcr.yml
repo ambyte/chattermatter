@@ -1,56 +1,62 @@
+# Использование: скопируйте .env.ghcr.example в .env.ghcr и запустите:
+#   docker-compose --env-file .env.ghcr -f docker-compose.ghcr.yml up -d
+
 version: "3.8"
 
 services:
   mattermost:
-    image: ghcr.io/${GITHUB_REPOSITORY:-mattermost/mattermost-server}:latest
+    image: ${MATTERMOST_IMAGE:-ghcr.io/mattermost/mattermost-server}:${MATTERMOST_IMAGE_TAG:-latest}
     container_name: mattermost
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
+    env_file:
+      - .env.ghcr
     depends_on:
       - postgres
       - minio
     ports:
-      - "8065:8065"
+      - "${APP_PORT:-8065}:8065"
       - "8067:8067"
     environment:
-      # Database settings
-      - MM_SQLSETTINGS_DRIVERNAME=postgres
-      - MM_SQLSETTINGS_DATASOURCE=postgres://mmuser:mmuser-password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+      - TZ=${TZ:-UTC}
+      # Database settings (из .env.ghcr)
+      - MM_SQLSETTINGS_DRIVERNAME=${MM_SQLSETTINGS_DRIVERNAME:-postgres}
+      - MM_SQLSETTINGS_DATASOURCE=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable&connect_timeout=10
 
-      # File storage settings (MinIO)
-      - MM_FILESETTINGS_DRIVERNAME=amazons3
-      - MM_FILESETTINGS_AMAZONS3ENDPOINT=minio:9000
-      - MM_FILESETTINGS_AMAZONS3ACCESSKEYID=minioadmin
-      - MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY=minioadmin-password
-      - MM_FILESETTINGS_AMAZONS3BUCKET=mattermost
+      # File storage settings (MinIO, из .env.ghcr)
+      - MM_FILESETTINGS_DRIVERNAME=${MM_FILESETTINGS_DRIVERNAME:-amazons3}
+      - MM_FILESETTINGS_AMAZONS3ENDPOINT=${MM_FILESETTINGS_AMAZONS3ENDPOINT:-minio:9000}
+      - MM_FILESETTINGS_AMAZONS3ACCESSKEYID=${MINIO_ROOT_USER}
+      - MM_FILESETTINGS_AMAZONS3SECRETACCESSKEY=${MINIO_ROOT_PASSWORD}
+      - MM_FILESETTINGS_AMAZONS3BUCKET=${MINIO_BUCKET:-mattermost}
       - MM_FILESETTINGS_AMAZONS3REGION=us-east-1
       - MM_FILESETTINGS_AMAZONS3SSL=false
       - MM_FILESETTINGS_AMAZONS3SSE=false
       - MM_FILESETTINGS_AMAZONS3TRACE=false
 
       # License disabled
-      - DISABLE_LICENSE=1
+      - DISABLE_LICENSE=${DISABLE_LICENSE:-1}
 
-      # Service settings
-      - MM_SERVICESETTINGS_SITEURL=http://localhost:8065
+      # Service settings (из .env.ghcr)
+      - MM_SERVICESETTINGS_SITEURL=http://${DOMAIN:-localhost}:${APP_PORT:-8065}
       - MM_SERVICESETTINGS_LISTENADDRESS=:8065
-      - MM_SERVICESETTINGS_ENABLELOCALMODE=true
+      - MM_SERVICESETTINGS_ENABLELOCALMODE=${MM_SERVICESETTINGS_ENABLELOCALMODE:-true}
       - MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS=true
 
-      # Email settings (disable for development)
-      - MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL=true
-      - MM_EMAILSETTINGS_ENABLESIGNINWITHEMAIL=true
-      - MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME=true
-      - MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
-      - MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION=false
+      # Email settings (из .env.ghcr)
+      - MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL=${MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL:-true}
+      - MM_EMAILSETTINGS_ENABLESIGNINWITHEMAIL=${MM_EMAILSETTINGS_ENABLESIGNINWITHEMAIL:-true}
+      - MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME=${MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME:-true}
+      - MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=${MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS:-false}
+      - MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION=${MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION:-false}
       - MM_EMAILSETTINGS_FEEDBACKNAME=Mattermost
       - MM_EMAILSETTINGS_FEEDBACKEMAIL=noreply@localhost
       - MM_EMAILSETTINGS_REPLYTOADDRESS=noreply@localhost
       - MM_EMAILSETTINGS_SMTPPORT=10025
       - MM_EMAILSETTINGS_SMTPSERVER=localhost
 
-      # Team settings
-      - MM_TEAMSETTINGS_ENABLETEAMCREATION=true
-      - MM_TEAMSETTINGS_ENABLEOPENSERVER=true
+      # Team settings (из .env.ghcr)
+      - MM_TEAMSETTINGS_ENABLETEAMCREATION=${MM_TEAMSETTINGS_ENABLETEAMCREATION:-true}
+      - MM_TEAMSETTINGS_ENABLEOPENSERVER=${MM_TEAMSETTINGS_ENABLEOPENSERVER:-true}
       - MM_TEAMSETTINGS_RESTRICTTEAMINVITE=false
 
       # Log settings
@@ -75,17 +81,19 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: mattermost-postgres
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
+    env_file:
+      - .env.ghcr
     environment:
-      - POSTGRES_USER=mmuser
-      - POSTGRES_PASSWORD=mmuser-password
-      - POSTGRES_DB=mattermost
+      - POSTGRES_USER=${POSTGRES_USER:-mmuser}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mmuser-password}
+      - POSTGRES_DB=${POSTGRES_DB:-mattermost}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - mattermost-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mmuser} -d ${POSTGRES_DB:-mattermost}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -93,11 +101,13 @@ services:
   minio:
     image: minio/minio:latest
     container_name: mattermost-minio
-    restart: unless-stopped
+    restart: ${RESTART_POLICY:-unless-stopped}
+    env_file:
+      - .env.ghcr
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin-password
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-password}
     volumes:
       - minio-data:/data
     ports:
@@ -117,12 +127,14 @@ services:
     container_name: mattermost-minio-setup
     depends_on:
       - minio
+    env_file:
+      - .env.ghcr
     entrypoint: >
       /bin/sh -c "
       sleep 10;
-      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin-password;
-      /usr/bin/mc mb myminio/mattermost || true;
-      /usr/bin/mc policy set public myminio/mattermost || true;
+      /usr/bin/mc config host add myminio http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      /usr/bin/mc mb myminio/$${MINIO_BUCKET} || true;
+      /usr/bin/mc policy set public myminio/$${MINIO_BUCKET} || true;
       exit 0;
       "
     networks:

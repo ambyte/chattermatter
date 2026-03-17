@@ -71,13 +71,19 @@ RUN npm ci && \
 # Runtime stage
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
+# Install runtime dependencies including fonts for profile images
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
     curl \
     libssl3 \
+    fonts-dejavu \
+    fonts-freefont-ttf \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
+
+# Refresh font cache
+RUN fc-cache -fv
 
 # Create non-root user
 RUN groupadd -g 1000 mattermost && \
