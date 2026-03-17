@@ -1,0 +1,41 @@
+# ChatterMatter deployment - ghcr.io/ambyte/chattermatter
+# Usage: cp .env.example .env && docker compose up -d
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG:-18-alpine}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ${POSTGRES_DATA_PATH}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mattermost:
+    image: ghcr.io/ambyte/chattermatter:latest
+    restart: ${RESTART_POLICY:-unless-stopped}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: ${MM_SQLSETTINGS_DRIVERNAME}
+      MM_SQLSETTINGS_DATASOURCE: ${MM_SQLSETTINGS_DATASOURCE}
+      MM_SERVICESETTINGS_SITEURL: ${MM_SERVICESETTINGS_SITEURL}
+      MM_BLEVESETTINGS_INDEXDIR: ${MM_BLEVESETTINGS_INDEXDIR}
+    volumes:
+      - ${MATTERMOST_CONFIG_PATH}:/mattermost/config:rw
+      - ${MATTERMOST_DATA_PATH}:/mattermost/data:rw
+      - ${MATTERMOST_LOGS_PATH}:/mattermost/logs:rw
+      - ${MATTERMOST_PLUGINS_PATH}:/mattermost/plugins:rw
+      - ${MATTERMOST_CLIENT_PLUGINS_PATH}:/mattermost/client/plugins:rw
+      - ${MATTERMOST_BLEVE_INDEXES_PATH}:/mattermost/bleve-indexes:rw
+    ports:
+      - "${APP_PORT:-8065}:8065"
+      - "${PUSH_PORT:-8074}:8074"
+      - "${CALLS_PORT:-8075}:8075"

@@ -24,6 +24,9 @@ python generate_license.py --license-only --private-key license-private.pem
 
 # С параметрами
 python generate_license.py --output-dir ./output --users 5000 --company "Acme Inc" --email admin@acme.com --days 365 --sku Enterprise
+
+python generate_license.py --output-dir ./output --users 5000 --company "Apex" --email admin@apex-project.ru --days 900 --sku Enterprise
+python generate_license.py  --license-only --private-key license-private.pem --output-dir ./output --users 5000 --company "Apex" --email admin@apex-project.ru --days 900 --sku Enterprise
 ```
 
 ### Параметры

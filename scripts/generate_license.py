@@ -23,6 +23,14 @@ from pathlib import Path
 # RSA 2048 for Mattermost compatibility (256-byte signature)
 RSA_KEY_SIZE = 2048
 
+# Mattermost IDs must be exactly 26 alphanumeric chars (IsValidId)
+MATTERMOST_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def mattermost_id() -> str:
+    """Generate Mattermost-compatible ID (26 chars, alphanumeric)."""
+    return "".join(secrets.choice(MATTERMOST_ID_ALPHABET) for _ in range(26))
+
 
 def generate_rsa_keypair() -> tuple:
     """Generate RSA key pair. Returns (private_key, public_key) as PEM bytes."""
@@ -89,7 +97,7 @@ def create_license_json(
     name: str = "Admin",
     sku: str = "Professional",
     sku_short: str = "professional",
-    is_trial: bool = True,
+    is_trial: bool = False,
     days_valid: int = 365,
 ) -> dict:
     """Create license JSON structure compatible with Mattermost."""
@@ -98,8 +106,8 @@ def create_license_json(
     starts_at = issued_at
     expires_at = int((now + timedelta(days=days_valid)).timestamp() * 1000)
 
-    license_id = secrets.token_hex(12)
-    customer_id = secrets.token_hex(12)
+    license_id = mattermost_id()
+    customer_id = mattermost_id()
 
     return {
         "id": license_id,
@@ -119,33 +127,33 @@ def create_license_json(
             "ldap": True,
             "ldap_groups": False,
             "mfa": True,
-            "google_oauth": True,
-            "office365_oauth": True,
+            "google_oauth": False,
+            "office365_oauth": False,
             "openid": True,
             "compliance": False,
             "cluster": True,
             "metrics": True,
             "mhpns": True,
             "saml": True,
-            "elastic_search": True,
+            "elastic_search": False,
             "announcement": True,
-            "theme_management": False,
-            "email_notification_contents": False,
-            "data_retention": False,
-            "message_export": False,
-            "custom_permissions_schemes": False,
-            "custom_terms_of_service": False,
+            "theme_management": True,
+            "email_notification_contents": True,
+            "data_retention": True,
+            "message_export": True,
+            "custom_permissions_schemes": True,
+            "custom_terms_of_service": True,
             "guest_accounts": True,
             "guest_accounts_permissions": True,
-            "id_loaded": False,
-            "lock_teammate_name_display": False,
+            "id_loaded": True,
+            "lock_teammate_name_display": True,
             "enterprise_plugins": True,
             "advanced_logging": True,
             "cloud": False,
-            "shared_channels": False,
+            "shared_channels": True,
             "remote_cluster_service": False,
             "outgoing_oauth_connections": True,
-            "future_features": False,
+            "future_features": True,
         },
         "is_trial": is_trial,
         "is_gov_sku": False,
