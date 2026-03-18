@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/shared/request"
@@ -32,6 +35,12 @@ type openIDClaims struct {
 	ID                string `json:"id"`
 }
 
+type openIDDiscoveryDocument struct {
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	UserinfoEndpoint      string `json:"userinfo_endpoint"`
+}
+
 func init() {
 	einterfaces.RegisterOAuthProvider(model.ServiceOpenid, &OpenIDProvider{})
 }
@@ -42,7 +51,41 @@ func (p *OpenIDProvider) GetSSOSettings(_ request.CTX, config *model.Config, ser
 		return nil, errors.New("sso settings not found")
 	}
 
-	return sso, nil
+	resolved := *sso
+
+	needDiscovery := strings.TrimSpace(model.SafeDereference(resolved.DiscoveryEndpoint)) != "" &&
+		(strings.TrimSpace(model.SafeDereference(resolved.AuthEndpoint)) == "" ||
+			strings.TrimSpace(model.SafeDereference(resolved.TokenEndpoint)) == "" ||
+			strings.TrimSpace(model.SafeDereference(resolved.UserAPIEndpoint)) == "")
+
+	if needDiscovery {
+		doc, err := fetchOpenIDDiscovery(model.SafeDereference(resolved.DiscoveryEndpoint))
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.TrimSpace(model.SafeDereference(resolved.AuthEndpoint)) == "" {
+			resolved.AuthEndpoint = model.NewPointer(doc.AuthorizationEndpoint)
+		}
+		if strings.TrimSpace(model.SafeDereference(resolved.TokenEndpoint)) == "" {
+			resolved.TokenEndpoint = model.NewPointer(doc.TokenEndpoint)
+		}
+		if strings.TrimSpace(model.SafeDereference(resolved.UserAPIEndpoint)) == "" {
+			resolved.UserAPIEndpoint = model.NewPointer(doc.UserinfoEndpoint)
+		}
+	}
+
+	if strings.TrimSpace(model.SafeDereference(resolved.AuthEndpoint)) == "" {
+		return nil, errors.New("openid auth endpoint is empty")
+	}
+	if strings.TrimSpace(model.SafeDereference(resolved.TokenEndpoint)) == "" {
+		return nil, errors.New("openid token endpoint is empty")
+	}
+	if strings.TrimSpace(model.SafeDereference(resolved.UserAPIEndpoint)) == "" {
+		return nil, errors.New("openid user api endpoint is empty")
+	}
+
+	return &resolved, nil
 }
 
 func (p *OpenIDProvider) GetUserFromIdToken(_ request.CTX, idToken string) (*model.User, error) {
@@ -156,6 +199,10 @@ func resolveUsername(claims *openIDClaims, opts *buildUserOptions) string {
 		return v
 	}
 
+	if v := strings.TrimSpace(claims.UserName); v != "" {
+		return v
+	}
+
 	for _, candidate := range []string{
 		claims.UserName,
 		claims.Nickname,
@@ -216,4 +263,64 @@ func decodeBase64SegmentToJSON(segment string, out any) error {
 	}
 
 	return json.Unmarshal(b, out)
+}
+
+func fetchOpenIDDiscovery(discoveryURL string) (*openIDDiscoveryDocument, error) {
+	req, err := http.NewRequest(http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("failed to fetch openid discovery document")
+	}
+
+	var doc openIDDiscoveryDocument
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		return nil, err
+	}
+
+	doc.AuthorizationEndpoint = resolveEndpointURL(discoveryURL, doc.AuthorizationEndpoint)
+	doc.TokenEndpoint = resolveEndpointURL(discoveryURL, doc.TokenEndpoint)
+	doc.UserinfoEndpoint = resolveEndpointURL(discoveryURL, doc.UserinfoEndpoint)
+
+	if strings.TrimSpace(doc.AuthorizationEndpoint) == "" ||
+		strings.TrimSpace(doc.TokenEndpoint) == "" ||
+		strings.TrimSpace(doc.UserinfoEndpoint) == "" {
+		return nil, errors.New("openid discovery document missing required endpoints")
+	}
+
+	return &doc, nil
+}
+
+func resolveEndpointURL(discoveryURL, endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+
+	parsedEndpoint, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint
+	}
+
+	if parsedEndpoint.IsAbs() {
+		return endpoint
+	}
+
+	parsedDiscovery, err := url.Parse(discoveryURL)
+	if err != nil {
+		return endpoint
+	}
+
+	return parsedDiscovery.ResolveReference(parsedEndpoint).String()
 }

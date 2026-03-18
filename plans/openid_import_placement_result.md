@@ -97,3 +97,50 @@
 
 - Общий анализ enterprise импортов: [`plans/enterprise_external_imports_analysis.md`](enterprise_external_imports_analysis.md).
 - План workflow enterprise сборки: [`plans/enterprise_build_workflow_plan.md`](enterprise_build_workflow_plan.md).
+
+## 9) Дополнительная диагностика кейса с `OpenIdSettings` (Apex SSO)
+
+### Симптом
+
+При конфиге с заполненным только `DiscoveryEndpoint` (а `AuthEndpoint`/`TokenEndpoint`/`UserAPIEndpoint` пустые) по кнопке входа происходил переход на локальный URL вида:
+
+- `/oauth/openid/?response_type=...`
+
+после чего пользователь попадал обратно на страницу Mattermost login:
+
+- `/login?redirect_to=...`
+
+### Причина
+
+В [`GetAuthorizationCode()`](../server/channels/app/oauth.go) формирование `authURL` происходит через конкатенацию [`endpoint + "?response_type=..."`](../server/channels/app/oauth.go:996), где `endpoint = *sso.AuthEndpoint` ([`server/channels/app/oauth.go`](../server/channels/app/oauth.go:977)).
+
+Если `AuthEndpoint` пустой, в браузер уходит относительный URL `?response_type=...`, что превращается в локальный путь `/oauth/openid/...`.
+
+Редирект на `/login?redirect_to=...` в этой ситуации — вторичный эффект проверки отсутствующей локальной сессии в [`authorizeOAuthPage()`](../server/channels/web/oauth.go:165), а не корневая причина.
+
+### Что добавлено в провайдер
+
+В [`server/enterprise/oauth/openid/openid.go`](../server/enterprise/oauth/openid/openid.go) доработан [`GetSSOSettings()`](../server/enterprise/oauth/openid/openid.go:48):
+
+1. При наличии `DiscoveryEndpoint` и пустых endpoint'ов выполняется загрузка discovery-документа.
+2. Из discovery подтягиваются:
+    - `authorization_endpoint`
+    - `token_endpoint`
+    - `userinfo_endpoint`
+3. Добавлена нормализация относительных endpoint'ов через [`resolveEndpointURL()`](../server/enterprise/oauth/openid/openid.go:303).
+4. Добавлена жесткая валидация, что после резолва endpoint'ы не пустые.
+
+### Проверка discovery конкретного IdP
+
+Для `https://sso.apex-soft.ru/realms/portal/.well-known/openid-configuration` подтверждено наличие всех требуемых endpoint'ов (`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`) и они абсолютные.
+
+### Текущее ожидаемое поведение
+
+После применения изменений и перезапуска сервера:
+
+- кнопка `Apex login` должна вести на внешний IdP `authorization_endpoint`,
+- а не на локальный `?response_type=...`.
+
+### Примечание
+
+Проверка автоматического выбора username по `UsePreferredUsername` в текущей локальной реализации отключена (из-за несовпадения поля в используемом типе `SSOSettings` в данном окружении сборки). На сам редирект к IdP это не влияет.
